@@ -288,7 +288,7 @@
       draw();
     }
 
-    function dropPiece() {
+    function dropPiece(softDrop = false) {
       if (paused || gameOver) return;
       piece.y++;
       if (collides(piece)) {
@@ -297,8 +297,10 @@
         clearFullLines();
         spawnPiece();
       } else {
-        score++;
-        updateStats();
+        if (softDrop) {
+          score++;
+          updateStats();
+        }
       }
       dropCounter = 0;
       draw();
@@ -322,12 +324,13 @@
     function rotatePiece(direction) {
       if (paused || gameOver) return;
       const original = piece.matrix;
-      const rotated = original[0].map((_, x) =>
-        original.map(row => row[x]).reverse()
-      );
       piece.matrix = direction < 0
-        ? rotated[0].map((_, x) => rotated.map(row => row[row.length - 1 - x]))
-        : rotated;
+        ? original[0].map((_, x) =>
+          original.map(row => row[original[0].length - 1 - x])
+        )
+        : original[0].map((_, x) =>
+          original.map(row => row[x]).reverse()
+        );
 
       const originalX = piece.x;
       for (const offset of [0, -1, 1, -2, 2]) {
@@ -414,7 +417,7 @@
     function performAction(action) {
       if (action === "left") movePiece(-1);
       if (action === "right") movePiece(1);
-      if (action === "down") dropPiece();
+      if (action === "down") dropPiece(true);
       if (action === "rotate") rotatePiece(1);
       if (action === "rotate-left") rotatePiece(-1);
       if (action === "drop") hardDrop();
