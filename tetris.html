@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tetris</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, sans-serif;
+      background: #10131d;
+      color: #f4f6ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(100%, 600px);
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      letter-spacing: 0.12em;
+    }
+
+    .game {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+    }
+
+    canvas {
+      display: block;
+      border: 2px solid #59617c;
+      border-radius: 6px;
+      background: #090b12;
+    }
+
+    #board {
+      width: min(60vw, 300px);
+      height: auto;
+    }
+
+    aside {
+      width: 130px;
+      text-align: left;
+    }
+
+    .stat {
+      margin: 0 0 16px;
+      color: #aeb6d3;
+      font-size: 0.9rem;
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 4px;
+      color: #fff;
+      font-size: 1.25rem;
+    }
+
+    #next {
+      width: 120px;
+      height: 120px;
+      margin-top: 6px;
+    }
+
+    .actions,
+    .controls {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    button {
+      min-width: 48px;
+      min-height: 42px;
+      border: 1px solid #59617c;
+      border-radius: 6px;
+      padding: 8px 12px;
+      background: #252b40;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    button:hover,
+    button:focus-visible {
+      background: #38415e;
+    }
+
+    .hint {
+      color: #aeb6d3;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    #message {
+      min-height: 1.5em;
+      margin: 12px 0 0;
+      color: #ffd166;
+      font-weight: 700;
+    }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 16px 8px;
+      }
+
+      .game {
+        gap: 10px;
+      }
+
+      aside {
+        width: 100px;
+      }
+
+      #next {
+        width: 96px;
+        height: 96px;
+      }
+
+      .hint {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>TETRIS</h1>
+    <div class="game">
+      <canvas id="board" width="300" height="600" aria-label="Tetris game board"></canvas>
+      <aside aria-label="Game information">
+        <p class="stat">Score<strong id="score">0</strong></p>
+        <p class="stat">Lines<strong id="lines">0</strong></p>
+        <p class="stat">Level<strong id="level">1</strong></p>
+        <p class="stat">Next piece</p>
+        <canvas id="next" width="120" height="120" aria-label="Next piece preview"></canvas>
+        <p class="hint">← → Move<br>↓ Soft drop<br>↑ / X Rotate<br>Z Rotate back<br>Space Hard drop<br>P Pause</p>
+      </aside>
+    </div>
+    <p id="message" role="status" aria-live="polite"></p>
+    <div class="actions">
+      <button id="pause" type="button">Pause</button>
+      <button id="restart" type="button">Restart</button>
+    </div>
+    <div class="controls" aria-label="Touch controls">
+      <button type="button" data-action="left" aria-label="Move left">←</button>
+      <button type="button" data-action="rotate-left" aria-label="Rotate counterclockwise">↶</button>
+      <button type="button" data-action="down" aria-label="Move down">↓</button>
+      <button type="button" data-action="rotate" aria-label="Rotate clockwise">↻</button>
+      <button type="button" data-action="right" aria-label="Move right">→</button>
+      <button type="button" data-action="drop" aria-label="Hard drop">Drop</button>
+    </div>
+  </main>
+
+  <script>
+    "use strict";
+
+    const canvas = document.getElementById("board");
+    const context = canvas.getContext("2d");
+    const nextCanvas = document.getElementById("next");
+    const nextContext = nextCanvas.getContext("2d");
+    const columns = 10;
+    const rows = 20;
+    const cellSize = 30;
+    const colors = [null, "#38d9a9", "#ffd43b", "#9775fa", "#ff922b", "#4dabf7", "#f06595", "#fa5252"];
+    const shapes = [
+      [[1, 1, 1, 1]],
+      [[2, 2], [2, 2]],
+      [[0, 3, 0], [3, 3, 3]],
+      [[0, 4, 4], [4, 4, 0]],
+      [[5, 0, 0], [5, 5, 5]],
+      [[0, 6, 6], [6, 6, 0]],
+      [[7, 7, 0], [0, 7, 7]]
+    ];
+
+    let board;
+    let piece;
+    let nextPiece;
+    let bag = [];
+    let score = 0;
+    let clearedLines = 0;
+    let paused = false;
+    let gameOver = false;
+    let dropCounter = 0;
+    let lastTime = 0;
+
+    function makeBag() {
+      bag = shapes.map((_, index) => index);
+      for (let index = bag.length - 1; index > 0; index--) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [bag[index], bag[swapIndex]] = [bag[swapIndex], bag[index]];
+      }
+    }
+
+    function createPiece() {
+      if (bag.length === 0) makeBag();
+      const shape = shapes[bag.pop()];
+      return {
+        matrix: shape.map(row => row.slice()),
+        x: Math.floor((columns - shape[0].length) / 2),
+        y: 0
+      };
+    }
+
+    function collides(candidate) {
+      return candidate.matrix.some((row, y) => row.some((value, x) => {
+        if (!value) return false;
+        const boardX = candidate.x + x;
+        const boardY = candidate.y + y;
+        return boardX < 0 || boardX >= columns || boardY >= rows ||
+          (boardY >= 0 && board[boardY][boardX] !== 0);
+      }));
+    }
+
+    function mergePiece() {
+      piece.matrix.forEach((row, y) => row.forEach((value, x) => {
+        if (value) {
+          const boardY = piece.y + y;
+          if (boardY < 0) {
+            gameOver = true;
+            return;
+          }
+          board[boardY][piece.x + x] = value;
+        }
+      }));
+    }
+
+    function clearFullLines() {
+      let count = 0;
+      for (let y = board.length - 1; y >= 0; y--) {
+        if (board[y].every(Boolean)) {
+          board.splice(y, 1);
+          board.unshift(Array(columns).fill(0));
+          count++;
+          y++;
+        }
+      }
+      if (count) {
+        const points = [0, 100, 300, 500, 800][count];
+        score += points * level();
+        clearedLines += count;
+        updateStats();
+      }
+    }
+
+    function level() {
+      return Math.floor(clearedLines / 10) + 1;
+    }
+
+    function updateStats() {
+      document.getElementById("score").textContent = score;
+      document.getElementById("lines").textContent = clearedLines;
+      document.getElementById("level").textContent = level();
+    }
+
+    function spawnPiece() {
+      piece = nextPiece || createPiece();
+      nextPiece = createPiece();
+      drawNext();
+      if (collides(piece)) {
+        gameOver = true;
+        document.getElementById("message").textContent = "Game over — press Restart to play again.";
+      }
+    }
+
+    function movePiece(offset) {
+      if (paused || gameOver) return;
+      piece.x += offset;
+      if (collides(piece)) piece.x -= offset;
+      draw();
+    }
+
+    function dropPiece() {
+      if (paused || gameOver) return;
+      piece.y++;
+      if (collides(piece)) {
+        piece.y--;
+        mergePiece();
+        clearFullLines();
+        spawnPiece();
+      } else {
+        score++;
+        updateStats();
+      }
+      dropCounter = 0;
+      draw();
+    }
+
+    function hardDrop() {
+      if (paused || gameOver) return;
+      let distance = 0;
+      while (!collides({ ...piece, y: piece.y + 1 })) {
+        piece.y++;
+        distance++;
+      }
+      score += distance * 2;
+      mergePiece();
+      clearFullLines();
+      spawnPiece();
+      updateStats();
+      draw();
+    }
+
+    function rotatePiece(direction) {
+      if (paused || gameOver) return;
+      const original = piece.matrix;
+      const rotated = original[0].map((_, x) =>
+        original.map(row => row[x]).reverse()
+      );
+      piece.matrix = direction < 0
+        ? rotated[0].map((_, x) => rotated.map(row => row[row.length - 1 - x]))
+        : rotated;
+
+      const originalX = piece.x;
+      for (const offset of [0, -1, 1, -2, 2]) {
+        piece.x = originalX + offset;
+        if (!collides(piece)) {
+          draw();
+          return;
+        }
+      }
+      piece.x = originalX;
+      piece.matrix = original;
+    }
+
+    function drawCell(ctx, x, y, color, size) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      ctx.strokeRect(x * size + 1.5, y * size + 1.5, size - 3, size - 3);
+    }
+
+    function drawMatrix(ctx, matrix, offset, size) {
+      matrix.forEach((row, y) => row.forEach((value, x) => {
+        if (value && offset.y + y >= 0) {
+          drawCell(ctx, offset.x + x, offset.y + y, colors[value], size);
+        }
+      }));
+    }
+
+    function drawNext() {
+      nextContext.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+      if (!nextPiece) return;
+      const matrix = nextPiece.matrix;
+      const size = 24;
+      const offset = {
+        x: (nextCanvas.width / size - matrix[0].length) / 2,
+        y: (nextCanvas.height / size - matrix.length) / 2
+      };
+      drawMatrix(nextContext, matrix, offset, size);
+    }
+
+    function draw() {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = "rgba(255, 255, 255, 0.045)";
+      for (let x = 0; x <= columns; x++) {
+        context.beginPath();
+        context.moveTo(x * cellSize, 0);
+        context.lineTo(x * cellSize, canvas.height);
+        context.stroke();
+      }
+      for (let y = 0; y <= rows; y++) {
+        context.beginPath();
+        context.moveTo(0, y * cellSize);
+        context.lineTo(canvas.width, y * cellSize);
+        context.stroke();
+      }
+      drawMatrix(context, board, { x: 0, y: 0 }, cellSize);
+      if (piece) drawMatrix(context, piece.matrix, piece, cellSize);
+    }
+
+    function setPaused(value) {
+      if (gameOver) return;
+      paused = value;
+      document.getElementById("pause").textContent = paused ? "Resume" : "Pause";
+      document.getElementById("message").textContent = paused ? "Paused" : "";
+      draw();
+    }
+
+    function restart() {
+      board = Array.from({ length: rows }, () => Array(columns).fill(0));
+      bag = [];
+      score = 0;
+      clearedLines = 0;
+      paused = false;
+      gameOver = false;
+      dropCounter = 0;
+      document.getElementById("pause").textContent = "Pause";
+      document.getElementById("message").textContent = "";
+      updateStats();
+      nextPiece = createPiece();
+      spawnPiece();
+      draw();
+    }
+
+    function performAction(action) {
+      if (action === "left") movePiece(-1);
+      if (action === "right") movePiece(1);
+      if (action === "down") dropPiece();
+      if (action === "rotate") rotatePiece(1);
+      if (action === "rotate-left") rotatePiece(-1);
+      if (action === "drop") hardDrop();
+    }
+
+    document.addEventListener("keydown", event => {
+      const actions = {
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        ArrowDown: "down",
+        ArrowUp: "rotate",
+        x: "rotate",
+        X: "rotate",
+        z: "rotate-left",
+        Z: "rotate-left",
+        " ": "drop"
+      };
+      if (event.key === "p" || event.key === "P") {
+        setPaused(!paused);
+        event.preventDefault();
+      } else if (actions[event.key]) {
+        performAction(actions[event.key]);
+        event.preventDefault();
+      }
+    });
+
+    document.querySelectorAll("[data-action]").forEach(button => {
+      button.addEventListener("click", () => performAction(button.dataset.action));
+    });
+    document.getElementById("pause").addEventListener("click", () => setPaused(!paused));
+    document.getElementById("restart").addEventListener("click", restart);
+
+    function update(time = 0) {
+      const delta = time - lastTime;
+      lastTime = time;
+      if (!paused && !gameOver) {
+        dropCounter += delta;
+        if (dropCounter > Math.max(100, 800 - (level() - 1) * 65)) dropPiece();
+      }
+      requestAnimationFrame(update);
+    }
+
+    restart();
+    requestAnimationFrame(update);
+  </script>
+</body>
+</html>
